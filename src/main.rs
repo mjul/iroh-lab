@@ -1,6 +1,7 @@
 use iced::{
     alignment, executor, Application, Command, Element, Length, Settings, Subscription,
     Theme, widget::{button, column, container, row, scrollable, text, text_input}, Alignment,
+    clipboard,
 };
 use iroh::Endpoint;
 use std::sync::Arc;
@@ -88,6 +89,9 @@ enum Message {
     SubmitJoinTopic,
     EnterChatRoom,
     SendMessage,
+    
+    // Clipboard
+    CopyTicket,
     
     // Iroh events
     IrohInitialized(Result<(Arc<Mutex<Endpoint>>, String), String>),
@@ -265,8 +269,22 @@ impl Application for IrohChat {
                                 if let Some(endpoint) = endpoint {
                                     let _endpoint = endpoint.lock().await;
                                     // Here we would join a topic in Iroh using the ticket and gossip protocol
-                                    // This is a placeholder - you'll need to implement the actual Iroh topic joining
-                                    // For now, we'll just return a topic name derived from the ticket
+                                    
+                                    // Parse the ticket to extract the topic name
+                                    // Expected format: iroh-ticket-{topic_name}-{uuid}
+                                    if ticket.starts_with("iroh-ticket-") {
+                                        // Extract the topic name from the ticket
+                                        let parts: Vec<&str> = ticket.split('-').collect();
+                                        if parts.len() >= 4 {
+                                            // The topic name could contain hyphens, so we need to reconstruct it
+                                            // We know the format is: iroh-ticket-{topic_name}-{uuid}
+                                            // So we take all parts between "ticket" and the UUID
+                                            let topic_name = parts[2..parts.len()-1].join("-");
+                                            return Ok(topic_name);
+                                        }
+                                    }
+                                    
+                                    // If we can't parse the ticket, just use a generic name
                                     Ok(format!("Topic from ticket {}", &ticket[0..min(8, ticket.len())]))
                                 } else {
                                     Err("Iroh client not initialized".to_string())
@@ -275,6 +293,15 @@ impl Application for IrohChat {
                             Message::TopicJoined,
                         );
                     }
+                }
+                Command::none()
+            }
+            
+            Message::CopyTicket => {
+                if let InputState::TopicCreated { ticket, .. } = &self.input_state {
+                    return Command::batch(vec![
+                        clipboard::write(ticket.clone()),
+                    ]);
                 }
                 Command::none()
             }
@@ -557,10 +584,18 @@ impl Application for IrohChat {
                     .width(Length::Fill)
                     .horizontal_alignment(alignment::Horizontal::Center);
                 
-                let ticket_display = text(ticket)
-                    .size(18)
-                    .width(Length::Fill)
-                    .horizontal_alignment(alignment::Horizontal::Center);
+                let ticket_row = row![
+                    text(ticket)
+                        .size(18)
+                        .width(Length::Fill)
+                        .horizontal_alignment(alignment::Horizontal::Center),
+                    button("Copy")
+                        .on_press(Message::CopyTicket)
+                        .padding(5),
+                ]
+                .spacing(10)
+                .width(Length::Fill)
+                .align_items(Alignment::Center);
                 
                 let button_row = row![
                     button("Back to Menu")
@@ -576,7 +611,7 @@ impl Application for IrohChat {
                 let content = column![
                     title,
                     ticket_text,
-                    ticket_display,
+                    ticket_row,
                     button_row,
                 ]
                 .spacing(20)
