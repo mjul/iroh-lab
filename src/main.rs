@@ -4,36 +4,20 @@ use iced::{
     clipboard, time,
 };
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use tokio::sync::Mutex;
+use uuid;
+use chrono;
+use std::collections::HashSet;
 
-// Channel for receiving messages from the network
-static mut MESSAGE_SENDER: Option<mpsc::UnboundedSender<ChatMessage>> = None;
-static mut MESSAGE_RECEIVER: Option<mpsc::UnboundedReceiver<ChatMessage>> = None;
+// Import our client module
+mod client;
+use client::{IrohClient, ChatMessage};
 
 fn main() -> iced::Result {
     // Initialize the message channel
-    let (sender, receiver) = mpsc::unbounded_channel();
-    unsafe {
-        MESSAGE_SENDER = Some(sender);
-        MESSAGE_RECEIVER = Some(receiver);
-    }
+    let (_sender, _receiver) = IrohClient::initialize_message_channel();
     
     IrohChat::run(Settings::default())
-}
-
-// Message structure for chat
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChatMessage {
-    id: String,
-    author: String,
-    content: String,
-    timestamp: DateTime<Utc>,
-    topic_hash: String,
-    sequence: u64,
 }
 
 // Application state
@@ -47,13 +31,8 @@ struct IrohChat {
     processed_message_ids: HashSet<String>,
     sequence_counter: u64,
     
-    // Network state
-    node_id: Option<String>,
-    
-    // Topic management
-    topic_ticket: Option<String>,
-    topic_hash: Option<String>,
-    subscribed_topics: HashMap<String, String>,
+    // Client state
+    client: IrohClient,
     
     // Error message
     error: Option<String>,
@@ -118,7 +97,6 @@ enum Message {
     
     // Polling for messages
     Tick,
-    CheckForMessages,
 }
 
 impl Application for IrohChat {
@@ -136,19 +114,15 @@ impl Application for IrohChat {
             messages: Vec::new(),
             processed_message_ids: HashSet::new(),
             sequence_counter: 0,
-            node_id: None,
-            topic_ticket: None,
-            topic_hash: None,
-            subscribed_topics: HashMap::new(),
+            client: IrohClient::new(),
             error: None,
         };
 
         // Initialize network
         let command = Command::perform(
             async {
-                // Generate a random node ID
-                let node_id = Uuid::new_v4().to_string();
-                Ok(node_id)
+                let mut client = IrohClient::new();
+                client.initialize_network().await
             },
             Message::NetworkInitialized,
         );
@@ -245,15 +219,12 @@ impl Application for IrohChat {
                     if !topic_name.trim().is_empty() {
                         let username = username.clone();
                         let topic_name = topic_name.clone();
+                        let client = Arc::new(Mutex::new(self.client.clone()));
                         
                         return Command::perform(
                             async move {
-                                // Create a topic hash from the topic name
-                                let topic_hash = format!("{}-{}", topic_name, Uuid::new_v4());
-                                
-                                // Generate a ticket for sharing
-                                let ticket = format!("ticket-{}-{}", topic_name, topic_hash);
-                                Ok((topic_name, ticket, topic_hash))
+                                let mut client = client.lock().await;
+                                client.create_topic(topic_name).await
                             },
                             |result| {
                                 match result {
@@ -272,26 +243,12 @@ impl Application for IrohChat {
                     if !ticket.trim().is_empty() {
                         let _username = username.clone();
                         let ticket = ticket.clone();
+                        let client = Arc::new(Mutex::new(self.client.clone()));
                         
                         return Command::perform(
                             async move {
-                                // Parse the ticket to extract the topic name and hash
-                                // Expected format: ticket-{topic_name}-{hash}
-                                if ticket.starts_with("ticket-") {
-                                    let parts: Vec<&str> = ticket.split('-').collect();
-                                    if parts.len() >= 3 {
-                                        // Extract the topic name
-                                        let topic_name_parts = &parts[1..parts.len()-1];
-                                        let topic_name = topic_name_parts.join("-");
-                                        
-                                        // Extract the hash
-                                        let hash = parts[parts.len()-1].to_string();
-                                        
-                                        return Ok((topic_name, hash));
-                                    }
-                                }
-                                
-                                Err("Invalid ticket format".to_string())
+                                let mut client = client.lock().await;
+                                client.join_topic(ticket).await
                             },
                             |result| {
                                 match result {
@@ -327,11 +284,11 @@ impl Application for IrohChat {
             
             Message::SendMessage => {
                 if let InputState::ChatRoom { username, message } = &self.input_state.clone() {
-                    if !message.trim().is_empty() && self.current_topic.is_some() && self.topic_hash.is_some() {
+                    if !message.trim().is_empty() && self.current_topic.is_some() && self.client.topic_hash.is_some() {
                         let username = username.clone();
                         let message_content = message.clone();
-                        let topic_hash = self.topic_hash.clone().unwrap();
                         let sequence = self.sequence_counter;
+                        let client = Arc::new(Mutex::new(self.client.clone()));
                         
                         // Increment sequence counter
                         self.sequence_counter += 1;
@@ -343,11 +300,11 @@ impl Application for IrohChat {
                         
                         // Create the chat message
                         let chat_message = ChatMessage {
-                            id: Uuid::new_v4().to_string(),
+                            id: uuid::Uuid::new_v4().to_string(),
                             author: username.clone(),
                             content: message_content.clone(),
-                            timestamp: Utc::now(),
-                            topic_hash: topic_hash.clone(),
+                            timestamp: chrono::Utc::now(),
+                            topic_hash: self.client.topic_hash.clone().unwrap(),
                             sequence,
                         };
                         
@@ -355,32 +312,10 @@ impl Application for IrohChat {
                         self.messages.push(chat_message.clone());
                         self.processed_message_ids.insert(chat_message.id.clone());
                         
-                        // In a real implementation, we would publish the message to the network
-                        // For now, we'll simulate receiving the message from another client
-                        let sender_clone = unsafe { MESSAGE_SENDER.clone() };
-                        
                         return Command::perform(
                             async move {
-                                // Simulate network delay
-                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                                
-                                // Simulate receiving the message from another client
-                                if let Some(sender) = sender_clone {
-                                    // Create a simulated message from another user
-                                    let simulated_message = ChatMessage {
-                                        id: Uuid::new_v4().to_string(),
-                                        author: format!("User-{}", Uuid::new_v4().to_string()[..8].to_string()),
-                                        content: format!("Reply to: {}", message_content),
-                                        timestamp: Utc::now(),
-                                        topic_hash: topic_hash.clone(),
-                                        sequence: sequence + 1,
-                                    };
-                                    
-                                    // Send the simulated message
-                                    let _ = sender.send(simulated_message);
-                                }
-                                
-                                Ok(()) as Result<(), String>
+                                let client = client.lock().await;
+                                client.send_message(username, message_content, sequence).await
                             },
                             |result: Result<(), String>| {
                                 match result {
@@ -400,7 +335,7 @@ impl Application for IrohChat {
             Message::NetworkInitialized(result) => {
                 match result {
                     Ok(node_id) => {
-                        self.node_id = Some(node_id);
+                        self.client.node_id = Some(node_id);
                     }
                     Err(error) => {
                         self.error = Some(error);
@@ -413,11 +348,11 @@ impl Application for IrohChat {
                 match result {
                     Ok((topic, ticket, hash)) => {
                         self.current_topic = Some(topic.clone());
-                        self.topic_ticket = Some(ticket.clone());
-                        self.topic_hash = Some(hash.clone());
+                        self.client.topic_ticket = Some(ticket.clone());
+                        self.client.topic_hash = Some(hash.clone());
                         
                         // Store the topic in our subscribed topics
-                        self.subscribed_topics.insert(topic.clone(), hash.clone());
+                        self.client.subscribed_topics.insert(topic.clone(), hash.clone());
                         
                         if let Some(username) = self.get_username() {
                             self.input_state = InputState::TopicCreated {
@@ -438,10 +373,10 @@ impl Application for IrohChat {
                 match result {
                     Ok((topic, hash)) => {
                         self.current_topic = Some(topic.clone());
-                        self.topic_hash = Some(hash.clone());
+                        self.client.topic_hash = Some(hash.clone());
                         
                         // Store the topic in our subscribed topics
-                        self.subscribed_topics.insert(topic.clone(), hash.clone());
+                        self.client.subscribed_topics.insert(topic.clone(), hash.clone());
                         
                         if let Some(username) = self.get_username() {
                             self.input_state = InputState::ChatRoom {
@@ -473,29 +408,24 @@ impl Application for IrohChat {
             
             Message::Tick => {
                 // Check if there are any new messages in the channel
-                unsafe {
-                    if let Some(ref mut receiver) = MESSAGE_RECEIVER {
-                        // Try to receive all pending messages
-                        let mut commands = Vec::new();
-                        
-                        while let Ok(message) = receiver.try_recv() {
-                            commands.push(Command::perform(
-                                async move { message },
-                                Message::MessageReceived,
-                            ));
-                        }
-                        
-                        if !commands.is_empty() {
-                            return Command::batch(commands);
-                        }
+                let receiver = IrohClient::get_message_receiver();
+                
+                if let Some(mut receiver) = receiver {
+                    // Try to receive all pending messages
+                    let mut commands = Vec::new();
+                    
+                    while let Ok(message) = receiver.try_recv() {
+                        commands.push(Command::perform(
+                            async move { message },
+                            |msg| Message::MessageReceived(msg),
+                        ));
+                    }
+                    
+                    if !commands.is_empty() {
+                        return Command::batch(commands);
                     }
                 }
                 
-                Command::none()
-            }
-            
-            Message::CheckForMessages => {
-                // This is now handled by the message listener
                 Command::none()
             }
         }
