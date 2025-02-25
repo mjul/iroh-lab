@@ -53,6 +53,31 @@ Iroh Chat is a decentralized chat application that leverages Iroh's peer-to-peer
 4. **Join a topic**: Paste a ticket to join an existing conversation
 5. **Chat**: Exchange messages in real-time with other participants
 
+## Testing
+
+The project includes both unit tests and integration tests to ensure functionality works as expected.
+
+### Running Tests
+
+Run the tests using Cargo:
+```
+cargo test 
+```
+
+Run a specific integration test:
+```
+cargo test --test client_integration
+```
+
+### Integration Tests
+
+The integration tests are located in the `tests` directory and include:
+
+1. **Client Integration Tests** (`client_integration.rs`):
+   - Tests for creating topics
+   - Tests for sending messages
+   - Tests for client-to-client communication
+
 ## Implementation Details
 
 The application is structured around the Iced application framework and uses Iroh's client API for peer-to-peer communication. Key components include:
