@@ -1,9 +1,9 @@
-use tokio::sync::mpsc;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{trace, info, warn, instrument};
+use tokio::sync::mpsc;
+use tracing::{info, instrument, trace, warn};
+use uuid::Uuid;
 
 // Message structure for chat
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +39,10 @@ impl IrohClient {
         }
     }
 
-    pub fn initialize_message_channel() -> (mpsc::UnboundedSender<ChatMessage>, mpsc::UnboundedReceiver<ChatMessage>) {
+    pub fn initialize_message_channel() -> (
+        mpsc::UnboundedSender<ChatMessage>,
+        mpsc::UnboundedReceiver<ChatMessage>,
+    ) {
         trace!("Initializing message channel");
         let (sender, receiver) = mpsc::unbounded_channel();
         unsafe {
@@ -76,26 +79,30 @@ impl IrohClient {
     }
 
     #[instrument(skip(self), fields(topic_name = %topic_name))]
-    pub async fn create_topic(&mut self, topic_name: String) -> Result<(String, String, String), String> {
+    pub async fn create_topic(
+        &mut self,
+        topic_name: String,
+    ) -> Result<(String, String, String), String> {
         info!("Creating new topic: {}", topic_name);
         // Create a topic hash from the topic name
         let topic_hash = format!("{}-{}", topic_name, Uuid::new_v4());
-        
+
         // Generate a ticket for sharing
         let ticket = format!("ticket-{}-{}", topic_name, topic_hash);
-        
+
         self.topic_ticket = Some(ticket.clone());
         self.topic_hash = Some(topic_hash.clone());
-        
+
         // Store the topic in our subscribed topics
-        self.subscribed_topics.insert(topic_name.clone(), topic_hash.clone());
-        
+        self.subscribed_topics
+            .insert(topic_name.clone(), topic_hash.clone());
+
         info!(
             topic_hash = %topic_hash,
             ticket = %ticket,
             "Topic created successfully"
         );
-        
+
         Ok((topic_name, ticket, topic_hash))
     }
 
@@ -108,27 +115,28 @@ impl IrohClient {
             let parts: Vec<&str> = ticket.split('-').collect();
             if parts.len() >= 3 {
                 // Extract the topic name
-                let topic_name_parts = &parts[1..parts.len()-1];
+                let topic_name_parts = &parts[1..parts.len() - 1];
                 let topic_name = topic_name_parts.join("-");
-                
+
                 // Extract the hash
-                let hash = parts[parts.len()-1].to_string();
-                
+                let hash = parts[parts.len() - 1].to_string();
+
                 self.topic_hash = Some(hash.clone());
-                
+
                 // Store the topic in our subscribed topics
-                self.subscribed_topics.insert(topic_name.clone(), hash.clone());
-                
+                self.subscribed_topics
+                    .insert(topic_name.clone(), hash.clone());
+
                 info!(
                     topic_name = %topic_name,
                     topic_hash = %hash,
                     "Successfully joined topic"
                 );
-                
+
                 return Ok((topic_name, hash));
             }
         }
-        
+
         warn!("Failed to join topic: Invalid ticket format");
         Err("Invalid ticket format".to_string())
     }
@@ -138,13 +146,18 @@ impl IrohClient {
         topic_hash = ?self.topic_hash,
         sequence = %sequence
     ))]
-    pub async fn send_message(&self, username: String, message_content: String, sequence: u64) -> Result<(), String> {
+    pub async fn send_message(
+        &self,
+        username: String,
+        message_content: String,
+        sequence: u64,
+    ) -> Result<(), String> {
         if let Some(topic_hash) = &self.topic_hash {
             info!(
                 content_length = message_content.len(),
                 "Sending message to network"
             );
-            
+
             // Create the chat message - we don't use this directly but it's useful for debugging
             let message_id = Uuid::new_v4().to_string();
             let _chat_message = ChatMessage {
@@ -155,32 +168,32 @@ impl IrohClient {
                 topic_hash: topic_hash.clone(),
                 sequence,
             };
-            
+
             trace!(
                 message_id = %message_id,
                 "Message created and ready to send"
             );
-            
+
             // In a real implementation, we would publish the message to the network
             // For now, we'll simulate receiving the message from another client
             let sender_clone = Self::get_message_sender();
-            
+
             // Simulate network delay
             trace!("Simulating network delay");
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            
+
             // Simulate receiving the message from another user
             if let Some(sender) = sender_clone {
                 // Create a simulated message from another user
                 let simulated_user_id = Uuid::new_v4().to_string()[..8].to_string();
                 let simulated_message_id = Uuid::new_v4().to_string();
-                
+
                 trace!(
                     simulated_user = %simulated_user_id,
                     simulated_message_id = %simulated_message_id,
                     "Creating simulated response message"
                 );
-                
+
                 let simulated_message = ChatMessage {
                     id: simulated_message_id,
                     author: format!("User-{}", simulated_user_id),
@@ -189,7 +202,7 @@ impl IrohClient {
                     topic_hash: topic_hash.clone(),
                     sequence: sequence + 1,
                 };
-                
+
                 // Send the simulated message
                 trace!("Sending simulated message to channel");
                 if let Err(e) = sender.send(simulated_message) {
@@ -200,7 +213,7 @@ impl IrohClient {
             } else {
                 warn!("No message sender available");
             }
-            
+
             info!("Message sending process completed");
             Ok(())
         } else {
@@ -208,4 +221,4 @@ impl IrohClient {
             Err("No active topic".to_string())
         }
     }
-} 
+}

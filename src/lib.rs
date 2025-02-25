@@ -1,3 +1,3 @@
 pub mod client;
 
-pub use client::{IrohClient, ChatMessage}; 
+pub use client::{ChatMessage, IrohClient};
