@@ -1,0 +1,15 @@
+[package]
+name = "iroh-lab"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced = { version = "0.10", features = ["tokio", "image"] }
+iroh = "0.12"
+tokio = { version = "1", features = ["full"] }
+async-std = "1.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = "0.4"
+uuid = { version = "1.4", features = ["v4", "serde"] }
+anyhow = "1.0"
