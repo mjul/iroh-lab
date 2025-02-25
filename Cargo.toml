@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 iced = { version = "0.10", features = ["tokio", "image"] }
-iroh = "0.12.0"
+iroh = "0.33.0"
 iroh-gossip = { version = "0.33.0", features = ["rpc"] }
 tokio = { version = "1.28.0", features = ["full"] }
 async-std = "1.12"

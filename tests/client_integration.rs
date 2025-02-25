@@ -3,18 +3,19 @@ use tokio::runtime::Runtime;
 
 /// # Test: Create Random Topic
 ///
-/// This test verifies that a client can create a new randomly named topic.
+/// This test verifies that a client can create a new randomly named topic using Iroh's
+/// decentralized document system.
 ///
 /// ## Steps:
-/// 1. Initialize a new client
+/// 1. Initialize a new client with an Iroh node
 /// 2. Initialize the network
-/// 3. Create a random topic with a specified name
+/// 3. Create a topic with a specified name
 ///
 /// ## Assertions:
 /// - The node ID should not be empty
 /// - The created topic name should match the requested name
 /// - The ticket and hash should not be empty
-/// - The ticket should have the expected format
+/// - The ticket should be a valid Iroh document sharing ticket
 /// - The topic should be stored in the client's subscribed topics
 /// - The stored hash should match the returned hash
 #[test]
@@ -64,22 +65,17 @@ fn test_create_random_topic() {
 
 /// # Test: Create Topic and Send Message
 ///
-/// This test verifies that a client can create a topic and send a message to it.
-/// The test uses the simulated network behavior to verify message delivery.
+/// This test verifies that a client can create a topic and send a message to it
+/// using Iroh's peer-to-peer networking.
 ///
 /// ## Steps:
-/// 1. Initialize the message channel
-/// 2. Initialize a new client
-/// 3. Create a topic
-/// 4. Send a message to the topic
-/// 5. Wait for the simulated response
+/// 1. Initialize a new client with an Iroh node
+/// 2. Create a topic
+/// 3. Send a message to the topic
 ///
 /// ## Assertions:
-/// - The message should be successfully sent
-/// - A response message should be received within the timeout period
-/// - The response message should have the correct topic hash
-/// - The response content should reference the original message
-/// - The sequence number should be incremented
+/// - The message should be successfully sent to the Iroh document
+/// - The message should be properly serialized and stored in the document
 #[test]
 fn test_create_topic_and_send_message() {
     let rt = Runtime::new().unwrap();
@@ -114,22 +110,22 @@ fn test_create_topic_and_send_message() {
 
 /// # Test: Two Clients Communication
 ///
-/// This test verifies that two different client instances can communicate with each other.
-/// It simulates a scenario where one client creates a topic, another client joins it,
-/// and they exchange messages.
+/// This test verifies that two different client instances can communicate with each other
+/// using Iroh's peer-to-peer networking. It creates a scenario where one client creates a topic,
+/// another client joins it, and they exchange messages through Iroh documents.
 ///
 /// ## Steps:
-/// 1. Initialize client A and the network
+/// 1. Initialize client A with an Iroh node
 /// 2. Create a topic with client A
-/// 3. Initialize client B and the network
+/// 3. Initialize client B with an Iroh node
 /// 4. Client B joins the topic created by client A
-/// 5. Client A sends a message
-/// 6. Client B sends a message
+/// 5. Client A sends a message to the shared document
+/// 6. Client B sends a message to the shared document
 ///
 /// ## Assertions:
 /// - Both clients can successfully join the same topic
-/// - Messages from both clients can be sent successfully
-/// - The topic hashes are non-empty
+/// - Messages from both clients can be sent successfully to the shared document
+/// - The topic hashes are non-empty and valid Iroh document IDs
 #[test]
 fn test_two_clients_communication() {
     let rt = Runtime::new().unwrap();
