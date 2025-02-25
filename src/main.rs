@@ -38,7 +38,7 @@ fn main() -> iced::Result {
         .enable_all()
         .build()
         .expect("Failed to create Tokio runtime");
-    
+
     // Enter the runtime context
     let _guard = runtime.enter();
 
@@ -461,14 +461,14 @@ impl Application for IrohChat {
                         if message.id == "ping" && message.author == "system" {
                             continue;
                         }
-                        
+
                         // Process messages only for the current topic
                         if let Some(current_topic_hash) = self.client.topic_hash.as_ref() {
                             if message.topic_hash == *current_topic_hash {
                                 commands.push(Command::perform(async move { message }, |msg| {
                                     Message::MessageReceived(msg)
                                 }));
-                                
+
                                 count += 1;
                                 if count >= max_messages_per_tick {
                                     break;
