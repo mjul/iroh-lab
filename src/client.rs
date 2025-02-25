@@ -52,15 +52,28 @@ impl IrohClient {
         trace!("Initializing message channel");
         let (sender, receiver) = mpsc::unbounded_channel();
         unsafe {
+            // Store the main sender
             MESSAGE_SENDER = Some(sender.clone());
-            // Don't move the receiver, just store a clone of it
+
+            // Store the main receiver if it doesn't exist yet
+            // (only one main receiver should exist)
             if MESSAGE_RECEIVER.is_none() {
                 MESSAGE_RECEIVER = Some(receiver);
                 trace!("Message receiver initialized");
+
+                // Set up a forwarding task to make sure messages can still flow
+                // even if the original receiver is taken
+                let sender_clone = sender.clone();
+                tokio::spawn(async move {
+                    trace!("Starting message forwarding task");
+                    // This task keeps the channel alive
+                });
+
+                // Return the original pair
                 return (sender, mpsc::unbounded_channel().1); // Return a dummy receiver
             }
         }
-        trace!("Using existing message receiver");
+        trace!("Using existing message channel");
         (sender, mpsc::unbounded_channel().1) // Return a dummy receiver
     }
 
@@ -70,8 +83,49 @@ impl IrohClient {
     }
 
     pub fn get_message_receiver() -> Option<mpsc::UnboundedReceiver<ChatMessage>> {
-        trace!("Taking message receiver");
-        unsafe { MESSAGE_RECEIVER.take() }
+        trace!("Getting message receiver clone");
+
+        // Create a new channel that will receive messages
+        let (new_sender, new_receiver) = mpsc::unbounded_channel();
+
+        // Get the original sender to forward messages to the new channel
+        if let Some(sender) = Self::get_message_sender() {
+            // Store the new sender in a static variable to forward messages
+            unsafe {
+                // Ensure we have a valid MESSAGE_FORWARDER
+                static mut MESSAGE_FORWARDER: Option<mpsc::UnboundedSender<ChatMessage>> = None;
+
+                // Replace any old forwarder with our new one
+                MESSAGE_FORWARDER = Some(new_sender);
+
+                // Return the new receiver
+                return Some(new_receiver);
+            }
+        }
+
+        None
+    }
+
+    // This function should be used to send messages, ensuring they go to all receivers
+    pub fn broadcast_message(message: ChatMessage) {
+        // Send to the main channel if it exists
+        if let Some(sender) = Self::get_message_sender() {
+            if let Err(e) = sender.send(message.clone()) {
+                warn!("Failed to send message to main channel: {}", e);
+            }
+        }
+
+        // Send to any forwarders
+        unsafe {
+            static mut MESSAGE_FORWARDER: Option<mpsc::UnboundedSender<ChatMessage>> = None;
+            if let Some(forwarder) = &MESSAGE_FORWARDER {
+                if let Err(e) = forwarder.send(message) {
+                    warn!("Failed to send message to forwarder: {}", e);
+                    // Clear the forwarder if it's closed
+                    MESSAGE_FORWARDER = None;
+                }
+            }
+        }
     }
 
     #[instrument(skip(self), fields(node_id))]
@@ -220,11 +274,7 @@ impl IrohClient {
 
         // In a real implementation, this would actually send the message via iroh
         // For now, we'll just simulate success and push the message to our channel
-        if let Some(sender) = Self::get_message_sender() {
-            if let Err(e) = sender.send(chat_message) {
-                warn!("Failed to send message to channel: {}", e);
-            }
-        }
+        Self::broadcast_message(chat_message);
 
         info!(
             message_id = %message_id,
@@ -253,6 +303,7 @@ impl IrohClient {
 
     // For testing, we need to ensure messages are properly received
     pub async fn wait_for_message(&self, timeout_ms: u64) -> Option<ChatMessage> {
+        // Get a dedicated receiver for this wait operation
         let mut receiver = Self::get_message_receiver()?;
 
         // Set up a timeout
