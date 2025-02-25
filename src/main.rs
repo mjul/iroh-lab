@@ -2,8 +2,7 @@ use iced::{
     alignment, executor, Application, Command, Element, Length, Settings, Subscription,
     Theme, widget::{button, column, container, row, scrollable, text, text_input}, Alignment,
 };
-use iroh::{client::{Iroh, TicketV1}, node::NodeId};
-use std::collections::HashMap;
+use iroh::Endpoint;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -33,14 +32,15 @@ struct IrohChat {
     messages: Vec<ChatMessage>,
     
     // Iroh client
-    iroh: Option<Arc<Mutex<Iroh>>>,
-    node_id: Option<NodeId>,
+    endpoint: Option<Arc<Mutex<Endpoint>>>,
+    node_id: Option<String>,
     
     // Error message
     error: Option<String>,
 }
 
 // Input state for different screens
+#[derive(Clone)]
 enum InputState {
     Welcome {
         username: String,
@@ -81,7 +81,7 @@ enum Message {
     SendMessage,
     
     // Iroh events
-    IrohInitialized(Result<(Arc<Mutex<Iroh>>, NodeId), String>),
+    IrohInitialized(Result<(Arc<Mutex<Endpoint>>, String), String>),
     TopicCreated(Result<String, String>),
     TopicJoined(Result<String, String>),
     MessageReceived(ChatMessage),
@@ -101,7 +101,7 @@ impl Application for IrohChat {
             },
             current_topic: None,
             messages: Vec::new(),
-            iroh: None,
+            endpoint: None,
             node_id: None,
             error: None,
         };
@@ -109,10 +109,16 @@ impl Application for IrohChat {
         // Initialize Iroh client
         let command = Command::perform(
             async {
-                match Iroh::builder().build().await {
-                    Ok(iroh) => {
-                        let node_id = iroh.node_id();
-                        Ok((Arc::new(Mutex::new(iroh)), node_id))
+                // Create an endpoint using the builder pattern
+                match iroh::Endpoint::builder()
+                    .discovery_n0()
+                    .bind()
+                    .await {
+                    Ok(endpoint) => {
+                        // Get the node ID
+                        let node_id = endpoint.node_id().to_string();
+                        
+                        Ok((Arc::new(Mutex::new(endpoint)), node_id))
                     }
                     Err(e) => Err(format!("Failed to initialize Iroh: {}", e)),
                 }
@@ -209,15 +215,15 @@ impl Application for IrohChat {
             Message::SubmitCreateTopic => {
                 if let InputState::CreateTopic { username, topic_name } = &self.input_state.clone() {
                     if !topic_name.trim().is_empty() {
-                        let username = username.clone();
+                        let _username = username.clone();
                         let topic_name = topic_name.clone();
-                        let iroh_client = self.iroh.clone();
+                        let endpoint = self.endpoint.clone();
                         
                         return Command::perform(
                             async move {
-                                if let Some(iroh) = iroh_client {
-                                    let mut iroh = iroh.lock().await;
-                                    // Here we would create a new topic in Iroh
+                                if let Some(endpoint) = endpoint {
+                                    let _endpoint = endpoint.lock().await;
+                                    // Here we would create a new topic in Iroh using the gossip protocol
                                     // This is a placeholder - you'll need to implement the actual Iroh topic creation
                                     // For now, we'll just return the topic name
                                     Ok(topic_name)
@@ -235,15 +241,15 @@ impl Application for IrohChat {
             Message::SubmitJoinTopic => {
                 if let InputState::JoinTopic { username, ticket } = &self.input_state.clone() {
                     if !ticket.trim().is_empty() {
-                        let username = username.clone();
+                        let _username = username.clone();
                         let ticket = ticket.clone();
-                        let iroh_client = self.iroh.clone();
+                        let endpoint = self.endpoint.clone();
                         
                         return Command::perform(
                             async move {
-                                if let Some(iroh) = iroh_client {
-                                    let mut iroh = iroh.lock().await;
-                                    // Here we would join a topic in Iroh using the ticket
+                                if let Some(endpoint) = endpoint {
+                                    let _endpoint = endpoint.lock().await;
+                                    // Here we would join a topic in Iroh using the ticket and gossip protocol
                                     // This is a placeholder - you'll need to implement the actual Iroh topic joining
                                     // For now, we'll just return a topic name derived from the ticket
                                     Ok(format!("Topic from ticket {}", &ticket[0..min(8, ticket.len())]))
@@ -263,8 +269,8 @@ impl Application for IrohChat {
                     if !message.trim().is_empty() && self.current_topic.is_some() {
                         let username = username.clone();
                         let message_content = message.clone();
-                        let topic = self.current_topic.clone().unwrap();
-                        let iroh_client = self.iroh.clone();
+                        let _topic = self.current_topic.clone().unwrap();
+                        let endpoint = self.endpoint.clone();
                         
                         // Clear the message input
                         if let InputState::ChatRoom { message: m, .. } = &mut self.input_state {
@@ -282,9 +288,9 @@ impl Application for IrohChat {
                         
                         return Command::perform(
                             async move {
-                                if let Some(iroh) = iroh_client {
-                                    let mut iroh = iroh.lock().await;
-                                    // Here we would send the message to the Iroh topic
+                                if let Some(endpoint) = endpoint {
+                                    let _endpoint = endpoint.lock().await;
+                                    // Here we would send the message to the Iroh topic using the gossip protocol
                                     // This is a placeholder - you'll need to implement the actual Iroh message sending
                                 }
                                 // Return the message we just sent
@@ -299,8 +305,8 @@ impl Application for IrohChat {
             
             Message::IrohInitialized(result) => {
                 match result {
-                    Ok((iroh, node_id)) => {
-                        self.iroh = Some(iroh);
+                    Ok((endpoint, node_id)) => {
+                        self.endpoint = Some(endpoint);
                         self.node_id = Some(node_id);
                     }
                     Err(error) => {
