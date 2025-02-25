@@ -92,11 +92,36 @@ impl IrohClient {
         if let Some(sender) = Self::get_message_sender() {
             // Store the new sender in a static variable to forward messages
             unsafe {
-                // Ensure we have a valid MESSAGE_FORWARDER
-                static mut MESSAGE_FORWARDER: Option<mpsc::UnboundedSender<ChatMessage>> = None;
+                // Ensure we have a valid MESSAGE_FORWARDERS list
+                static mut MESSAGE_FORWARDERS: Option<Vec<mpsc::UnboundedSender<ChatMessage>>> = None;
 
-                // Replace any old forwarder with our new one
-                MESSAGE_FORWARDER = Some(new_sender);
+                // Initialize the forwarders vector if it doesn't exist
+                if MESSAGE_FORWARDERS.is_none() {
+                    MESSAGE_FORWARDERS = Some(Vec::new());
+                }
+                
+                // Add our new sender to the list of forwarders
+                if let Some(forwarders) = &mut MESSAGE_FORWARDERS {
+                    // Clean up any closed channels before adding a new one
+                    forwarders.retain(|forwarder| {
+                        match forwarder.send(ChatMessage {
+                            id: "ping".to_string(),
+                            author: "system".to_string(),
+                            content: "ping".to_string(),
+                            timestamp: Utc::now(),
+                            topic_hash: "ping".to_string(),
+                            sequence: 0,
+                        }) {
+                            Ok(_) => true,
+                            Err(_) => false, // Remove closed channels
+                        }
+                    });
+                    
+                    // Now add the new forwarder
+                    forwarders.push(new_sender);
+                    
+                    trace!("Added new message forwarder, total forwarders: {}", forwarders.len());
+                }
 
                 // Return the new receiver
                 return Some(new_receiver);
@@ -108,6 +133,17 @@ impl IrohClient {
 
     // This function should be used to send messages, ensuring they go to all receivers
     pub fn broadcast_message(message: ChatMessage) {
+        // Filter ping messages (used just for checking channel liveness)
+        if message.id == "ping" && message.author == "system" {
+            return;
+        }
+        
+        trace!(
+            message_id = %message.id,
+            author = %message.author,
+            "Broadcasting message to all receivers"
+        );
+        
         // Send to the main channel if it exists
         if let Some(sender) = Self::get_message_sender() {
             if let Err(e) = sender.send(message.clone()) {
@@ -115,15 +151,30 @@ impl IrohClient {
             }
         }
 
-        // Send to any forwarders
+        // Send to all forwarders
         unsafe {
-            static mut MESSAGE_FORWARDER: Option<mpsc::UnboundedSender<ChatMessage>> = None;
-            if let Some(forwarder) = &MESSAGE_FORWARDER {
-                if let Err(e) = forwarder.send(message) {
-                    warn!("Failed to send message to forwarder: {}", e);
-                    // Clear the forwarder if it's closed
-                    MESSAGE_FORWARDER = None;
+            static mut MESSAGE_FORWARDERS: Option<Vec<mpsc::UnboundedSender<ChatMessage>>> = None;
+            
+            if let Some(forwarders) = &mut MESSAGE_FORWARDERS {
+                let forwarder_count = forwarders.len();
+                trace!("Sending message to {} forwarders", forwarder_count);
+                
+                // Remove any closed channels and send to all active ones
+                forwarders.retain(|forwarder| {
+                    match forwarder.send(message.clone()) {
+                        Ok(_) => true,
+                        Err(e) => {
+                            warn!("Failed to send message to forwarder: {}", e);
+                            false // Remove this forwarder
+                        }
+                    }
+                });
+                
+                if forwarder_count != forwarders.len() {
+                    trace!("Cleaned up forwarders, {} remaining", forwarders.len());
                 }
+            } else {
+                trace!("No message forwarders available");
             }
         }
     }
@@ -146,11 +197,31 @@ impl IrohClient {
         let node_id = endpoint.node_id().to_string();
 
         // Store endpoint and node_id
-        self.endpoint = Some(endpoint);
+        self.endpoint = Some(endpoint.clone());
         self.node_id = Some(node_id.clone());
+
+        // Start a background task to handle incoming messages
+        let endpoint_clone = endpoint.clone();
+        tokio::spawn(async move {
+            Self::listen_for_messages(endpoint_clone).await;
+        });
 
         info!(node_id = %node_id, "Network initialized with node ID");
         Ok(node_id)
+    }
+
+    // Function to listen for incoming messages from the network
+    async fn listen_for_messages(endpoint: Endpoint) {
+        info!("Starting message listener");
+        
+        // Currently just a placeholder - in a real application, 
+        // we would use iroh-gossip to set up p2p communications
+        
+        // For demo purposes, this function simulates incoming message processing
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            info!("Message listener still active");
+        }
     }
 
     #[instrument(skip(self), fields(topic_name = %topic_name))]
@@ -161,7 +232,6 @@ impl IrohClient {
         info!("Creating new topic: {}", topic_name);
 
         // Generate a simple ticket and hash for testing
-        // In a real implementation, this would use actual iroh functionality
         let uuid = Uuid::new_v4().to_string();
         let topic_hash = format!("{}-{}", topic_name, uuid);
         let ticket = format!("ticket-{}-{}", topic_name, uuid);
@@ -173,6 +243,16 @@ impl IrohClient {
         // Store the topic in our subscribed topics
         self.subscribed_topics
             .insert(topic_name.clone(), topic_hash.clone());
+
+        // In a real implementation, we would join the iroh-gossip topic here
+        if let Some(_endpoint) = &self.endpoint {
+            info!(
+                topic_hash = %topic_hash,
+                "Topic ready for p2p communication"
+            );
+        } else {
+            return Err("No active network endpoint".to_string());
+        }
 
         info!(
             topic_hash = %topic_hash,
@@ -207,6 +287,16 @@ impl IrohClient {
                 self.subscribed_topics
                     .insert(topic_name.clone(), topic_hash.clone());
 
+                // In a real implementation, we would join the iroh-gossip topic here
+                if let Some(_endpoint) = &self.endpoint {
+                    info!(
+                        topic_hash = %topic_hash,
+                        "Connected to p2p topic"
+                    );
+                } else {
+                    return Err("No active network endpoint".to_string());
+                }
+
                 info!(
                     topic_name = %topic_name,
                     topic_hash = %topic_hash,
@@ -230,6 +320,16 @@ impl IrohClient {
         // Store in subscribed topics
         self.subscribed_topics
             .insert(topic_name.to_string(), topic_hash.clone());
+
+        // In a real implementation, we would join the iroh-gossip topic here
+        if let Some(_endpoint) = &self.endpoint {
+            info!(
+                topic_hash = %topic_hash,
+                "Connected to p2p topic"
+            );
+        } else {
+            return Err("No active network endpoint".to_string());
+        }
 
         info!(
             topic_name = %topic_name,
@@ -272,14 +372,18 @@ impl IrohClient {
             sequence,
         };
 
-        // In a real implementation, this would actually send the message via iroh
-        // For now, we'll just simulate success and push the message to our channel
+        // Broadcast to local channels only for now
         Self::broadcast_message(chat_message);
 
-        info!(
-            message_id = %message_id,
-            "Message sent successfully"
-        );
+        // In a real implementation, we would also broadcast to the p2p network here
+        if let Some(_endpoint) = &self.endpoint {
+            info!(
+                message_id = %message_id,
+                "Message sent to local recipients"
+            );
+        } else {
+            return Err("No active network endpoint".to_string());
+        }
 
         Ok(())
     }

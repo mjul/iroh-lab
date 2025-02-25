@@ -453,11 +453,28 @@ impl Application for IrohChat {
                 if let Some(mut receiver) = receiver {
                     // Try to receive all pending messages
                     let mut commands = Vec::new();
+                    let mut count = 0;
+                    let max_messages_per_tick = 20; // Prevent processing too many at once
 
                     while let Ok(message) = receiver.try_recv() {
-                        commands.push(Command::perform(async move { message }, |msg| {
-                            Message::MessageReceived(msg)
-                        }));
+                        // Skip system ping messages
+                        if message.id == "ping" && message.author == "system" {
+                            continue;
+                        }
+                        
+                        // Process messages only for the current topic
+                        if let Some(current_topic_hash) = self.client.topic_hash.as_ref() {
+                            if message.topic_hash == *current_topic_hash {
+                                commands.push(Command::perform(async move { message }, |msg| {
+                                    Message::MessageReceived(msg)
+                                }));
+                                
+                                count += 1;
+                                if count >= max_messages_per_tick {
+                                    break;
+                                }
+                            }
+                        }
                     }
 
                     if !commands.is_empty() {
@@ -730,9 +747,9 @@ impl Application for IrohChat {
     fn subscription(&self) -> Subscription<Message> {
         // Only subscribe to events when in a chat room
         if let InputState::ChatRoom { .. } = self.input_state {
-            // Create a subscription that ticks every second to check for new messages
+            // Create a subscription that ticks more frequently to check for new messages
             Subscription::batch(vec![
-                time::every(std::time::Duration::from_secs(1)).map(|_| Message::Tick)
+                time::every(std::time::Duration::from_millis(200)).map(|_| Message::Tick)
             ])
         } else {
             Subscription::none()
