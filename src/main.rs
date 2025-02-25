@@ -33,6 +33,15 @@ fn main() -> iced::Result {
 
     info!("Starting Iroh Chat application");
 
+    // Create a Tokio runtime for our application
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
+    
+    // Enter the runtime context
+    let _guard = runtime.enter();
+
     // Initialize the message channel
     let (_sender, _receiver) = IrohClient::initialize_message_channel();
 
