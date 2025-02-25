@@ -7,6 +7,8 @@ use iced::{
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{info, Level};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use uuid;
 
 // Import our client module
@@ -14,6 +16,23 @@ mod client;
 use client::{ChatMessage, IrohClient};
 
 fn main() -> iced::Result {
+    // Initialize tracing for stdout
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(
+            EnvFilter::from_default_env()
+                .add_directive(Level::TRACE.into())
+                .add_directive("iced=warn".parse().unwrap())
+                .add_directive("tokio=info".parse().unwrap())
+                .add_directive("async_std=info".parse().unwrap()),
+        )
+        .with_target(true)
+        .with_line_number(true)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+
+    info!("Starting Iroh Chat application");
+
     // Initialize the message channel
     let (_sender, _receiver) = IrohClient::initialize_message_channel();
 
