@@ -1,3 +1,15 @@
+//! Client for the iroh network.
+//! 
+//! This is a client for the iroh network that allows you to send messages to the network and receive messages from the network.
+//! 
+//! It also allows you to create topics and join topics
+//! 
+//! It is designed to be used in a multi-process environment, where the main process is the client and the other processes are the nodes on the network.
+//! 
+//! See the Iroh documentation here:
+//! - <https://www.iroh.computer/docs
+//! - Specifically see the relevant "gossip" example: <https://www.iroh.computer/docs/examples/gossip-chat>
+//! 
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use iroh::Endpoint;
