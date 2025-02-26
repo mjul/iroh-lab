@@ -6,9 +6,17 @@
 //! 
 //! It is designed to be used in a multi-process environment, where the main process is the client and the other processes are the nodes on the network.
 //! 
-//! See the Iroh documentation here:
-//! - <https://www.iroh.computer/docs
+//! # Documentation
+//! 
+//! See the Iroh documentation here. Note that it often out of sync with the actual code, so the examples are not always correct.
+//! - <https://www.iroh.computer/docs>
 //! - Specifically see the relevant "gossip" example: <https://www.iroh.computer/docs/examples/gossip-chat>
+//! 
+//! The documentation for our specific version of `iroh` is here:
+//! <https://docs.rs/iroh/0.33.0/iroh/>
+//! 
+//! The documentation for our specific version of `iroh-gossip` is here:
+//! https://docs.rs/iroh-gossip/0.33.0/iroh_gossip/
 //! 
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
